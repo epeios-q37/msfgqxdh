@@ -157,8 +157,10 @@ void melody::HandleKeyAndAccidental(
   rXMelody &XMelody)
 {
   XMelody.Accidental = Accidental;
+  sSignatureKey SignatureKey = Accidental == aSharp ? Key : -Key;
 
-  UpdateSignatureKey_(Accidental == aSharp ? Key : -Key, XMelody);
+  UpdateSignatureKey_(SignatureKey, XMelody);
+  XMelody.Signature.Key = SignatureKey;
 }
 
 /*

@@ -33,12 +33,12 @@ mods += fil flf flsq flw flx
 mods += fnm ias idsq iof iop 
 mods += lcl lck lst lstbch lstcrt 
 mods += lstctn mns mtk mtx ntvstr 
-mods += osd que rgstry sdr stkbse 
-mods += stkbch stkcrt stkctn str strng 
-mods += stsfsm tagsbs tht thtsub tol 
-mods += txf tys uys utf xml 
-mods += xpp xtf llio dlbrry plgn 
-mods += plgncore strmrg cdgurl cnvfdr 
+mods += osd que rgstry rnd sdr 
+mods += stkbse stkbch stkcrt stkctn str 
+mods += strng stsfsm tagsbs tht thtsub 
+mods += tol txf tys uys utf 
+mods += xml xpp xtf llio dlbrry 
+mods += plgn plgncore strmrg cdgurl cnvfdr 
 mods += csdrcc 
 mods += fblcmd fblcst fblfep fblfph fblfrd 
 mods += fblfrp fblovl fbltyp 
@@ -442,7 +442,7 @@ ifeq ("$(target)","$(Android)")
 	rm -rf *.d
 endif
 
-copt += -DVERSION=\""20221102"\"
+copt += -DVERSION=\""20221105"\"
 copt += -DCOPYRIGHT_YEARS=\""2016"\"
 copt += -DIDENTIFIER=\""c8c33276-5e09-4f11-bd1b-3283b0ef0697"\"
 

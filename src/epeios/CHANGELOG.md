@@ -13,6 +13,20 @@
 - [typo]: typography;
 - [warn]: fixing compiler warning messages;
 
+## 2022-11-05
+- SCLX: introducing the handling of the head section by user;
+- XPP: XPP directives inside a *cdata* directive are now handled;
+
+## 2022-11-04
+- MSCMLD: [rvrt] octave;
+- MTX: [typo];
+- STR: [extn];
+
+## 2022-11-03
+- MSCMLD:
+  - adding `Octave` attribute for *XML* pitch diff;
+  - [stdz];
+
 ## 2022-11-01
 - SCLX: [extn];
 
