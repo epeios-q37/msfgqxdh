@@ -300,6 +300,7 @@ ifeq ("$(os)","$(GNULinux)")
 	mods += $(pmods)
 	
 	libs += -lpthread -ldl -lrt
+	libs += -lasound
 
 	ifeq ("$(target)","$(IA_32)")
 		co += -m32
@@ -331,6 +332,7 @@ ifeq ("$(os)","$(FreeBSD)")
 	mods += $(pmods)
 	
 	libs += -lpthread -ldl -lrt
+	libs += -lasound
 
 	ifeq ("$(target)","$(IA_32)")
 		co += -m32
@@ -362,6 +364,7 @@ ifeq ("$(os)","$(Linux)")
 	mods += $(pmods)
 
 	libs += -lpthread -ldl -lrt
+	libs += -lasound
 	
 	ifeq ("$(target)","$(IA_32)")
 		co += -m32
@@ -419,8 +422,9 @@ ifeq ("$(os)","$(Android)")
 	mods += $(pmods)
 
 	libs += -lpthread -ldl -lrt
-	
-	ifeq ("$(target)","$(IA_32)")
+	libs += -lasound
+
+    ifeq ("$(target)","$(IA_32)")
 		co += -m32
 		lo += -m32
 	else # 'ifeq' on other line due to GNU 3.80 (Maemo on N900).
@@ -442,7 +446,7 @@ ifeq ("$(target)","$(Android)")
 	rm -rf *.d
 endif
 
-copt += -DVERSION=\""20221105"\"
+copt += -DVERSION=\""20221107"\"
 copt += -DCOPYRIGHT_YEARS=\""2016"\"
 copt += -DIDENTIFIER=\""c8c33276-5e09-4f11-bd1b-3283b0ef0697"\"
 

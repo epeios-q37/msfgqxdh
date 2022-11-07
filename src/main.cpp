@@ -159,13 +159,6 @@ namespace {
     }
   }
 
-  namespace _ {
-    // When returning false, prevents using of ALSA libs (which headers must still be prsent).
-    bso::sBool AreDevicesAllowed(void) {
-      return !sclm::OGetBoolean(registry::parameter::devices::Forbidden, false);
-    }
-  }
-
   bso::sBool _FillMidiInDevices_(
     const str::dString &Id,
     str::dString &XHTML)
@@ -174,13 +167,11 @@ namespace {
   qRH;
     str::wStrings Ids, Names;
   qRB;
-    if ( _::AreDevicesAllowed() ) {
-      tol::Init(Ids, Names);
+    tol::Init(Ids, Names);
 
-      mscmdd::GetMidiInDeviceNames(Ids, Names);
+    mscmdd::GetMidiInDeviceNames(Ids, Names);
 
-      Available = Fill_(Id, Ids, Names, XHTML);
-    }
+    Available = Fill_(Id, Ids, Names, XHTML);
   qRR;
   qRT;
   qRE;
@@ -195,13 +186,11 @@ namespace {
   qRH;
     str::wStrings Ids, Names;
   qRB;
-    if ( _::AreDevicesAllowed() ) {
-      tol::Init(Ids, Names);
+    tol::Init(Ids, Names);
 
-      mscmdd::GetMidiOutDeviceNames(Ids, Names);
+    mscmdd::GetMidiOutDeviceNames(Ids, Names);
 
-      Available = Fill_(Id, Ids, Names, XHTML);
-    }
+    Available = Fill_(Id, Ids, Names, XHTML);
   qRR;
   qRT;
   qRE;

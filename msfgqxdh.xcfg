@@ -4,7 +4,7 @@
   <Parameters>
    <Language>en</Language>
    <Command>Draft</Command>
-   <Devices Forbidden="False">
+   <Devices>
     <In Policy="Id">hw:2,0</In>
     <Out Policy="Id">hw:2,0</Out>
    </Devices>
@@ -446,9 +446,9 @@ summary {
     <Script id="_ABC" Label="ABC (debug)" Mime="text/plain"># Built-in ecript. 'id' value of '_ABC' is reserved.</Script>
     <Script id="text" Label="XML as text" Mime="text/plain">while read x ; do echo $x ; done | base64</Script>
     <Script id="xml" Label="XML" Mime="text/xml">while read x ; do echo $x ; done | base64</Script>
-    <Script id="ly" Label=".ly" Mime="text/plain">xsltproc "/home/csimon/hg/epeios/stable/xmld2ly.xsl" - | base64</Script>
-    <Script id="png" Label="PNG" Mime="image/png">xsltproc "/home/csimon/hg/epeios/stable/xmld2ly.xsl" - | lilypond  --png -o msfgqxdh.tmp - ; base64 ./msfgqxdh.tmp.png ; rm msfgqxdh.tmp*</Script>
-    <Script id="pdf" Label="PDF" Mime="application/pdf">xsltproc "/home/csimon/hg/epeios/stable/xmld2ly.xsl" - | lilypond  -o msfgqxdh.tmp - ; base64 ./msfgqxdh.tmp.pdf ; rm msfgqxdh.tmp*</Script>
+    <Script id="ly" Label=".ly" Mime="text/plain">xsltproc "./xmld2ly.xsl" - | base64</Script>
+    <Script id="png" Label="PNG" Mime="image/png">xsltproc "./xmld2ly.xsl" - | lilypond  --png -o msfgqxdh.tmp - ; base64 ./msfgqxdh.tmp.png ; rm msfgqxdh.tmp*</Script>
+    <Script id="pdf" Label="PDF" Mime="application/pdf">xsltproc "./xmld2ly.xsl" - | lilypond  -o msfgqxdh.tmp - ; base64 ./msfgqxdh.tmp.pdf ; rm msfgqxdh.tmp*</Script>
    </Scripts>
   </Definitions>
   <Locale></Locale>
