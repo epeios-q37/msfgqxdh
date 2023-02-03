@@ -262,7 +262,7 @@ namespace {
 		else
 			TranslateAndPutInXML_( Message, Language, XML );
 
-		EncodeXML_( str::wString( AlertBaseXSL_ ), XSL );
+		EncodeXML_(AlertBaseXSL_, XSL );
 	}
 }
 
@@ -283,7 +283,6 @@ qRT
 qRE
 }
 
-
 void sclx::sProxy::Alert_(
 	const str::dString &XML,
 	const str::dString &XSL,
@@ -291,7 +290,7 @@ void sclx::sProxy::Alert_(
 	const char *Language )
 {
 qRH
-	str::string CloseText;
+	str::wString CloseText;
 qRB
 	CloseText.Init();
 	scll::GetTranslation( SCLX_NAME "_CloseText", Language, CloseText );
@@ -329,7 +328,7 @@ qRT
 qRE
 }
 
-void sclx::sProxy::AlertB( const str::dString & RawMessage )
+void sclx::sProxy::AlertB(const str::dString & RawMessage)
 {
 qRH;
 	str::wString Dummy;
@@ -340,6 +339,23 @@ qRB;
 qRR;
 qRT;
 qRE;
+}
+
+bso::sBool sclx::sProxy::ConfirmB(const str::dString & RawMessage)
+{
+  bso::sBool Confirmation = false;
+qRH;
+	str::wString Response;
+qRB;
+	Response.Init();
+
+	Process_("Confirm_1", &Response, RawMessage);    // Get an unused return value to wait the dismissing of the dialog box.
+
+	Confirmation = Response == "true";
+qRR;
+qRT;
+qRE;
+  return Confirmation;
 }
 
 void sclx::sProxy::Alert(
@@ -412,7 +428,7 @@ qRB
 
 	SetXMLAndXSL_( Message, MessageLanguage, XML, XSL );
 
-	Confirmation = Confirm_( XML, XSL, str::wString(), CloseTextLanguage );
+	Confirmation = Confirm_( XML, XSL, str::Empty, CloseTextLanguage );
 qRR
 qRT
 qRE
@@ -447,14 +463,14 @@ qRB
 		Message.Init();
 		if ( scle::GetPendingErrorTranslation( Language, Message, err::hUserDefined ) ) {
 			scle::ResetPendingError();
-			Proxy.AlertU( Message, str::wString(), Language );
+			Proxy.AlertU( Message, str::Empty, Language );
 		}
 		break;
 	case err::t_Free:
-		Proxy.AlertB( str::wString("???") );
+		Proxy.AlertB("???");
 		break;
 	default:
-		Proxy.AlertB( str::wString(err::Message( ErrBuffer )) );
+		Proxy.AlertB(err::Message(ErrBuffer));
 		break;
 	}
 
@@ -462,6 +478,52 @@ qRB
 qRR
 qRT
 qRE
+}
+
+const char *sclx::GetLabel_(ePosition Position)
+{
+  switch( Position ) {
+  case pBefore:
+    return "beforebegin";
+    break;
+  case pBegin:
+    return "afterbegin";
+    break;
+  case pInner:
+    return "inner";
+    break;
+  case pEnd:
+    return "beforeend";
+    break;
+  case pAfter:
+    return "aftereend";
+    break;
+  default:
+    qRGnr();
+    break;
+  }
+
+  return NULL;  // To avoid a warning.
+}
+
+const char *sclx::GetLabel_(eAction Action)
+{
+  switch( Action ) {
+  case aAdd:
+    return "Add";
+    break;
+  case aRemove:
+    return "Remove";
+    break;
+  case aToggle:
+    return "Toggle";
+    break;
+  default:
+    qRGnr();
+    break;
+  }
+
+  return NULL;  // To avoid a warning.
 }
 
 namespace {
@@ -549,61 +611,33 @@ qRT;
 qRE;
 }
 
-void sclx::sProxy::GetValues(
-	const str::dStrings &Ids,
-	str::dStrings &Values)
+void sclx::sProxy::HandleClasses_(
+  eAction Action,
+  const str::dStrings &Ids,
+  const str::dString &Class)
 {
 qRH;
-	str::wString MergedValues;
+  str::wStrings Classes;
+  sdr::sSize Amount = 0;
 qRB;
-	MergedValues.Init();
+  Amount = Ids.Amount();
 
-	Process_("GetValues_1", &MergedValues, Ids);
+  Classes.Init();
 
-	xdhcmn::FlatSplit(MergedValues, Values);
+  while ( Amount-- )
+    Classes.Append(Class);
+
+  HandleClasses_(Action, Ids, Classes);
 qRR;
 qRT;
 qRE;
 }
 
-void sclx::sProxy::GetMarks(
-	const str::dStrings &Ids,
-	str::dStrings &Marks)
+qGCTOR( sclx )
 {
-qRH;
-	str::wString MergedMarks;
-qRB;
-	MergedMarks.Init();
-
-	Process_("GetMarks_1", &MergedMarks, Ids);
-
-	xdhcmn::FlatSplit(MergedMarks, Marks);
-qRR;
-qRT;
-qRE;
+  // To test if 'qNIL' is equivalent to -1.
+  if ( !tol::CanBeFilledWith<sdr::sRow>(qNIL, -1, qRPU) )
+    qRChk();
 }
 
-void sclx::sProxy::EnableElements( const str::dStrings &Ids )
-{
-	qRLmt();
-//	HandleElements_( Ids, &xdhdws::sProxy::EnableElements, Core_ );
-}
-
-void sclx::sProxy::EnableElement(	const str::dString &Id )
-{
-	qRLmt();
-//	HandleElement_( Id, &sProxy::EnableElements, *this );
-}
-
-void sclx::sProxy::DisableElements( const str::dStrings &Ids )
-{
-	qRLmt();
-//	HandleElements_( Ids, &xdhdws::sProxy::DisableElements, Core_ );
-}
-
-void sclx::sProxy::DisableElement( const str::dString &Id )
-{
-	qRLmt();
-//	HandleElement_( Id, &sProxy::DisableElements, *this );
-}
 

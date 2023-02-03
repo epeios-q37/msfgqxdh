@@ -37,24 +37,77 @@ using namespace mscmld;
 
 using namespace midiq;
 
-namespace {
-  bso::sS8 Handle_(bso::sU8 Pitch)
-  {
-    bso::sS8 OctaveOverflow = 0;
-  qRH
-    hGuard Guard;
-  qRB;
-    melody::rXMelody &XMelody = melody::Get(Guard);
 
-    OctaveOverflow = melody::Handle(sNote(Pitch, sDuration(3), XMelody.Signature), XMelody);
+namespace {
+  namespace _ {
+    qENUM( Policy ) {
+      pId,
+      pName,
+      p_amount,
+      p_Undefined
+    };
+
+    static ePolicy GetPolicy(const rgstry::sTEntry &Entry)
+    {
+      ePolicy Policy = p_Undefined;
+    qRH;
+      str::wString RawPolicy;
+    qRB;
+      RawPolicy.Init();
+
+      sclm::MGetValue( Entry, RawPolicy );
+
+      if ( RawPolicy == "Id" )
+        Policy = pId;
+      else if ( RawPolicy == "Name" )
+        Policy = pName;
+      else
+        sclr::ReportBadOrNoValueForEntryErrorAndAbort( Entry );
+    qRR;
+    qRT;
+    qRE;
+      return Policy;
+    }
+  }
+
+  str::dString &GetDeviceId_(
+    mscmdd::eWay Way,
+    const rgstry::sTEntry &PolicyEntry,
+    const rgstry::sTEntry &ValueEntry,
+    str::dString &Id)
+  {
+  qRH;
+    qCBUFFERh Buffer;
+  qRB;
+    switch ( _::GetPolicy( PolicyEntry ) ) {
+    case _::pId:
+      sclm::OGetValue(ValueEntry, Id);
+      break;
+    case _::pName:
+      qRVct();
+      break;
+    default:
+      qRGnr();
+      break;
+    }
   qRR;
   qRT;
   qRE;
-    return OctaveOverflow;
+    return Id;
   }
 }
 
-void midiq::HandleInput(
+const str::dString &midiq::GetDeviceInId(str::dString &Id)
+{
+  return GetDeviceId_(mscmdd::wIn, registry::parameter::devices::in::Policy, registry::parameter::devices::in::Value, Id);
+}
+
+const str::dString &midiq::GetDeviceOutId(str::dString &Id)
+{
+  return GetDeviceId_(mscmdd::wOut, registry::parameter::devices::out::Policy, registry::parameter::devices::out::Value, Id);
+}
+
+void midiq::_HandleInput(
   void *UP,
   mtk::gBlocker &Blocker)
 {
@@ -91,8 +144,7 @@ qRB;
       if ( Header.EventType == etMIDI )
         if ( Header.MIDIEvent.Event == midNoteOn )
           if  ( Data( Data.Last() ) != 0 ) {
-            if ( Handle_(Data(Data.First())) == 0 )
-              sclx::Broadcast(str::wString("Hit"), str::wString(bso::Convert(Data(Data.First()), Buffer)));
+            sclx::Broadcast("Hit", bso::Convert(Data(Data.First()), Buffer));
   //					mtx::Lock( Shared.Mutex );
             /*if ( Shared.Row != qNIL ) {
               Shared.Melody->InsertAt(Note, Shared.Row);

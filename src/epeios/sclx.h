@@ -36,10 +36,13 @@ and mainly handled by the 'xdhqxdh' and 'faasq' utilities.
 
 # include "sclr.h"
 
+# include "dte.h"
 # include "err.h"
 # include "fblfrd.h"
 # include "rgstry.h"
+# include "tme.h"
 # include "tol.h"
+
 # include "xdhcdc.h"
 # include "xdhcmn.h"
 # include "xdhdws.h"
@@ -102,8 +105,8 @@ namespace sclx {
 		xfh_Default = xfhRegistry,
 	};
 
-# define SCLX_ADec( session, name )\
-	extern class s##name\
+# define SCLX_ADec( session, label )\
+	extern class s##label\
 	: public sclx::cAction<session>\
 	{\
 	protected:\
@@ -112,13 +115,13 @@ namespace sclx {
 			const char *Id,\
 			xdhcdc::eMode Mode ) override;\
 	public:\
-		static const char *Name;\
-	} name
+		static const char *Label;\
+	} label
 
-# define SCLX_ADef( session, owner, name )\
-	owner::s##name owner::name;\
-	const char *owner::s##name::Name = #name;\
-	void owner::s##name::SCLXLaunch(\
+# define SCLX_ADef( session, owner, label )\
+	owner::s##label owner::label;\
+	const char *owner::s##label::Label = #label;\
+	void owner::s##label::SCLXLaunch(\
 		session &Session,\
 		const char *Id,\
 		xdhcdc::eMode Mode )
@@ -127,7 +130,7 @@ namespace sclx {
 
 	template <typename session> E_TTCLONE_( bch::E_BUNCHt_( cAction<session> *, crow__ ), action_callbacks_ );
 
-	template <typename session> class action_handler_
+	template <typename session> class actions_handler_
 	{
 	private:
 		cAction<session> *Get_( const str::string_ &Action ) const
@@ -146,7 +149,7 @@ namespace sclx {
 		};
 		stsfsm::automat_ Automat;
 		action_callbacks_<session> Callbacks;
-		action_handler_( s &S )
+		actions_handler_( s &S )
 		: Automat( S.Automat ),
 			Callbacks( S.Callbacks )
 		{}
@@ -160,7 +163,7 @@ namespace sclx {
 			Automat.plug( AS );
 			Callbacks.plug( AS );
 		}
-		action_handler_ &operator =( const action_handler_ &AH )
+		actions_handler_ &operator =( const actions_handler_ &AH )
 		{
 			Automat = AH.Automat;
 			Callbacks = AH.Callbacks;
@@ -193,7 +196,7 @@ namespace sclx {
 		}
 	};
 
-	E_AUTO1( action_handler );
+	E_AUTO1( actions_handler );
 
 	template <typename session> class cActionHelper
 	{
@@ -202,7 +205,10 @@ namespace sclx {
 			session &Session,
 			const char *Id,
 			const char *Action ) = 0;
-		virtual void SCLXOnRefresh( session &Session ) = 0;
+		virtual void SCLXOnAfterAction(
+			session &Session,
+			const char *Id,
+			const char *Action ) = 0;
 		virtual bso::bool__ SCLXOnClose( session &Session ) = 0;
 	public:
 		void reset( bso::bool__ = true )
@@ -221,9 +227,12 @@ namespace sclx {
 		{
 			return SCLXOnBeforeAction( Session, Id, Action );
 		}
-		void OnRefresh( session &Session )
+		void OnAfterAction(
+			session &Session,
+			const char *Id,
+			const char *Action )
 		{
-			return SCLXOnRefresh( Session );
+			return SCLXOnAfterAction( Session, Id, Action );
 		}
 		bso::bool__ OnClose( session &Session )
 		{
@@ -231,7 +240,7 @@ namespace sclx {
 		}
 	};
 
-	class rActionHelper
+	class rActions
 	{
 	private:
 		stsfsm::wAutomat Automat_;
@@ -240,7 +249,7 @@ namespace sclx {
 		{
 			Automat_.reset( P );
 		}
-		qCDTOR( rActionHelper );
+		qCDTOR( rActions );
 		void Init( void )
 		{
 			Automat_.Init();
@@ -270,33 +279,404 @@ namespace sclx {
 
 	typedef fblfrd::cReporting cReporting_;
 
+	qENUM( Position ) {
+	  pBefore,  // Content put before element.
+	  pBegin,   // Content put as first child of element.
+	  pInner,   // Content replaces actual content of element.
+	  pEnd,     // Content put as last child of element.
+	  pAfter,   // Content put after element.
+	  p_amount,
+	  p_Undefined
+	};
+
+	const char *GetLabel_(ePosition Position);
+
+	qENUM( Action )
+	{
+	  aAdd,
+	  aRemove,
+	  aToggle,
+	  a_amount,
+	  a_Undefined
+	};
+
+	const char *GetLabel_(eAction Action);
+
+  template <typename type, int amount, typename gl> class sIds
+  {
+  private:
+    bso::sByte Ids_[amount/8+1];
+    bso::sSize Offset_(type Id) const
+    {
+      return Id / 8;
+    }
+    bso::sByte Mask_(type Id) const
+    {
+      return 1 << (Id % 8);
+    }
+    bso::sByte &Block_(type Id)
+    {
+      return Ids_[Offset_(Id)];
+    }
+    bso::sByte Block_(type Id) const
+    {
+      return Ids_[Offset_(Id)];
+    }
+    void Set_(
+      type Id,
+      bso::sBool V = true)
+    {
+      if ( V )
+        Block_(Id) |= Mask_(Id);
+      else
+        Block_(Id) &= ~Mask_(Id);
+    }
+    void Set_(
+      bso::sBool V,
+      type Id)
+    {
+      return Set_(Id,V);
+    }
+    template <typename ...ids> void Set_(
+      bso::sBool V,
+      type Id,
+      ids ...IdList)
+    {
+      Set_(V, IdList...);
+      Set_(Id, V);
+    }
+    void Set_(
+      const sIds<type, amount, gl> &Ids,
+      bso::sBool V)
+    {
+      for ( int Id = 0; Id < amount; Id++ )
+        if ( Ids.IsSet((type)Id) )
+          Set_(V, (type)Id);
+    }
+    void Set_(
+      bso::sBool V,
+      const sIds<type, amount, gl> &Ids)
+    {
+      Set_(Ids, V);
+    }
+    template <typename ...ids> void Set_(
+      bso::sBool V,
+      const sIds<type, amount, gl> &Ids,
+      ids ...IdList)
+    {
+      Set_(V, IdList...);
+      Set_(Ids, V);
+    }
+    bso::sBool IsSet_(type Id) const
+    {
+      return Block_(Id) & Mask_(Id);
+    }
+    void Invert_(type Id)
+    {
+      Set_(Id, !IsSet_(Id));
+    }
+    void Invert_(const sIds<type, amount, gl> &Ids)
+    {
+      for ( int Id = 0; Id < amount; Id++ )
+        if ( Ids.IsSet((type)Id) )
+          Invert_((type)Id);
+    }
+    template <typename ...ids> void Invert_(
+      type Id,
+      const ids &...IdList)
+    {
+      Invert_(IdList...);
+      Invert_(Id);
+    }
+    template <typename ...ids> void Invert_(
+      const sIds<type, amount, gl> &Ids,
+      const ids &...IdList)
+    {
+      Invert_(IdList...);
+      Invert_(Ids);
+    }
+  public:
+    void Reset(void)
+    {
+      memset(Ids_, 0, sizeof(Ids_));
+    }
+  public:
+    void reset(bso::sBool P = true)
+    {
+      Reset();
+    }
+    qCDTOR( sIds );
+    template <typename ...ids> sIds(ids ...IdList)
+    {
+      Init();
+
+      Put(IdList...);
+    }
+    void Init(void)
+    {
+      Reset();
+    }
+    template <typename ...ids> void Put(ids ...IdList)
+    {
+      Set_(true, IdList...);
+    }
+    template <typename ...ids> void Remove(ids ...IdList)
+    {
+      Set_(false, IdList...);
+    }
+    // Inverts the state of the items in 'IdList'.
+    template <typename ...ids> void Invert(ids ...IdList)
+    {
+      Invert_(IdList...);
+    }
+    bso::sBool IsSet(type Id) const
+    {
+      return IsSet_(Id);
+    }
+    void Fill(
+      str::dStrings &Ids,
+      sdr::sRow *Links ) const
+    {
+      for ( int Id = 0; Id < amount; Id++ )
+        if ( IsSet((type)Id) )
+          Links[Id] = Ids.Append(gl::GetLabel((type)Id));
+    }
+    void Fill(str::dStrings &Ids) const
+    {
+      sdr::sRow Links[amount];
+
+      Fill(Ids, Links);
+    }
+  };
+
+  template <typename type, int amount, typename gl> class rValues
+  {
+  private:
+    str::wStrings Values_;
+    sdr::sRow Links_[amount];
+    void ResetLinks_(void)
+    {
+      memset(Links_, -1, sizeof(Links_));
+    }
+  public:
+    void reset(bso::sBool P = true)
+    {
+      Values_.reset(P);
+      ResetLinks_();
+    }
+    qCDTOR(rValues);
+    void Init(void)
+    {
+      ResetLinks_();
+      Values_.Init();
+    }
+    const str::dString &Get(type Id) const
+    {
+      if ( Id >= amount )
+        qRFwk();
+
+      if ( Links_[Id] == qNIL )
+        qRFwk();
+
+      return Values_(Links_[Id]);
+    }
+    const str::dString &Get(
+      type Id,
+      str::dString &Value) const
+    {
+      Value = Get(Id);
+
+      return Value;
+    }
+    const str::dString &Get(
+      type Id,
+      str::wString &Value) const
+    {
+      return Get(Id, *Value);
+    }
+    const char *Get(
+      type Id,
+      qCBUFFERh &Buffer) const
+    {
+      return Get(Id).Convert(Buffer);
+    }
+    template <typename t> bso::sBool Get(
+      type Id,
+      t &Number,
+      qRPD) const
+    {
+      if ( !Get(Id).ToNumber(Number) )
+        if ( qRPT )
+          return false;
+
+      return true;
+    }
+    template <typename t> t Get(type Id) const
+    {
+      t Value;
+
+      Get(Id, Value);
+
+      return Value;
+    }
+    void Get(
+      type Id,
+      dte::sDate &Date,
+      dte::eFormat Format) const
+    {
+    qRH;
+      qCBUFFERh Buffer;
+    qRB;
+      Date.Init(Get(Id, Buffer), Format);
+    qRR;
+    qRT;
+    qRE;
+    }
+    void Get(
+      type Id,
+      tme::sTime &Time) const
+    {
+    qRH;
+      qCBUFFERh Buffer;
+    qRB;
+      Time.Init(Get(Id, Buffer));
+    qRR;
+    qRT;
+    qRE;
+    }
+    friend class sProxy;
+  };
+
+  template <typename type, int amount, typename gl> class rTValues
+  {
+  private:
+    str::wStrings
+      Ids_,
+      Values_;
+    sdr::sRow Add_(
+      type Id,
+      const str::dString &Value)
+    {
+      if ( Id >= amount )
+        qRFwk();
+
+      sdr::sRow Row = Ids_.Append(gl::GetLabel(Id));
+
+      if ( Row != Values_.Append(Value))
+        qRFwk();
+
+      return Row;
+    }
+    sdr::sRow Add_(
+      const str::dString &Id,
+      const str::dString &Value)
+    {
+      sdr::sRow Row = Ids_.Append(Id);
+
+      if ( Row != Values_.Append(Value))
+        qRFwk();
+
+      return Row;
+    }
+  public:
+    void reset(bso::sBool P = true)
+    {
+      tol::reset(P, Ids_, Values_);
+    }
+    qCDTOR( rTValues );
+    void Init(void)
+    {
+      tol::Init(Ids_, Values_);
+    }
+    template <typename id> sdr::sRow Add(
+      const id &Id,
+      const str::dString &Value)
+    {
+      return Add_(Id, Value);
+    }
+    template <typename id> sdr::sRow Add(
+      const id &Id,
+      const char *Value)
+    {
+      return Add_(Id, Value);
+    }
+    template <typename id> sdr::sRow Add(
+      const id &Id,
+      const str::wString &Value)
+    {
+      return Add_(Id, Value);
+    }
+    template <typename id> sdr::sRow Add(
+      const id &Id,
+      dte::sDate Date,
+      dte::eFormat Format)
+    {
+      dte::pBuffer Buffer;
+
+      if ( Date.IsSet() )
+        return Add(Id, Date.ASCII(Format, Buffer));
+      else
+        return Add(Id, "");
+    }
+    template <typename id> sdr::sRow Add(
+      const id &Id,
+      tme::sTime Time)
+    {
+      tme::pBuffer Buffer;
+
+      if ( Time.IsSet() )
+        return Add(Id, Time.ASCII(Buffer));
+      else
+        return Add(Id, "");
+    }
+    template <typename id, typename t> sdr::sRow Add(
+      const id &Id,
+      t Value)
+    {
+      bso::pInteger Buffer;
+
+      return Add(Id, bso::Convert(Value, Buffer));
+    }
+    friend class sProxy;
+  };
+
 	class sProxy
 	{
 	private:
 		xdhdws::sProxy Core_;
 		qRMV( const scli::sInfo, I_, Info_ );
 		eXSLFileHandling XSLFileHandling_;
-		void Fill_(
+		template <typename s> void Fill_(
 			str::dStrings &Values,
-			const str::dString &Value )
+			const s &Value )
 		{
 			Values.Append(Value);
-		}
-		void Fill_(
-			str::dStrings &Values,
-			const str::wString &Value ) // This variant with 'str::wStrind' is needed for the variadics to work.
-		{
-			Values.Append(Value);
-		}
-		void Fill_(
-			str::dStrings &Values,
-			const char *Value )
-		{
-			Values.Append(str::wString(Value));
 		}
 		void Fill_(
 			str::dStrings &Values,
 			const str::dStrings &SplittedValues );
+		void Fill_(
+			str::dStrings &Values,
+			const str::wStrings &SplittedValues )
+    {
+      Fill_(Values, *SplittedValues);
+    }
+    template <typename type, int amount, typename gl> void Fill_(
+      str::dStrings &Values,
+      const sIds<type, amount, gl> &Ids)
+    {
+    qRH;
+      str::wStrings SplittedValues;
+    qRB;
+      SplittedValues.Init();
+
+      Ids.Fill(SplittedValues);
+
+      Fill_(Values, SplittedValues);
+    qRR;
+    qRT;
+    qRE;
+    }
 		template <typename s, typename ...args> void Fill_(
 			str::dStrings &Values,
 			const s &Value,
@@ -372,7 +752,13 @@ namespace sclx {
 		qRT
 			return Buffer;
 		}
-		void Alert_(
+		void Execute_(
+			const str::dString &Script,
+			str::dString *Result )
+		{
+			Process_("Execute_1", Result, Script);
+		}
+    void Alert_(
 			const str::dString &XML,
 			const str::dString &XSL,
 			const str::dString &Title,
@@ -404,24 +790,34 @@ namespace sclx {
 			const sclr::registry_ &Registry,
 			const str::dString &XML,
 			bso::char__ Marker);
-		void HandleLayout_(
-			const char *Variant,
-			const char *Id,
-			const rgstry::rEntry &XSLFilename,
-			const char *Target,
-			const sclr::registry_ &Registry,
-			const str::dString &XML,
-			bso::char__ Marker)
-		{
-			return HandleLayout_(Variant, str::wString(Id), XSLFilename, Target, Registry, XML, Marker);
-		}
-		void HandleClasses_(
-			const char *Variant,
-			const str::dStrings &Ids,
+		template <typename ids> void HandleClasses_(
+			eAction Action,
+			const ids &Ids,
 			const str::dStrings &Classes)
 		{
-			Process_("HandleClasses_1", NULL, Variant, Ids, Classes);
+			Process_("HandleClasses_1", NULL, GetLabel_(Action), Ids, Classes);
 		}
+		void HandleClasses_(
+			eAction Action,
+			const str::dStrings &Ids,
+			const str::dString &Class);  // Applies same class to all ids.
+    template <typename type, int amount, typename gl> void HandleClasses_(
+      eAction Action,
+      const sIds<type, amount, gl> &Ids,
+      const str::dString &Class)
+    {
+    qRH;
+      str::wStrings IdsAsStrings;
+    qRB;
+      IdsAsStrings.Init();
+
+      Ids.Fill(IdsAsStrings);
+
+      HandleClasses_(Action, IdsAsStrings, Class);
+    qRR;
+    qRT;
+    qRE;
+    }
 		template <typename c1, typename c2> void GetValue_(
 			const c1 &Id,
 			c2 &Buffer )
@@ -473,7 +869,7 @@ namespace sclx {
 		qRE;
 		}
 		void HandleLayout_(
-      const str::dString &Variant,
+      const str::dString &Position,
       const str::dString &Id,
       const str::dString &XML,
       const str::dString &XSL)
@@ -483,10 +879,19 @@ namespace sclx {
     qRB;
       Dummy.Init();
 
-      Process_("HandleLayout_1", &Dummy, Variant, Id, XML, XSL); // The primitive returns a string, but which is not handled by the user.
+      Process_("HandleLayout_1", &Dummy, Position, Id, XML, XSL); // The primitive returns a string, hence the 'Dummy' parameter,
+                                                                  // but which is not handled by the user.
     qRR;
     qRT;
     qRE;
+    }
+		void HandleLayout_(
+      ePosition Position,
+      const str::dString &Id,
+      const str::dString &XML,
+      const str::dString &XSL)
+    {
+      return HandleLayout_(GetLabel_(Position), Id, XML, XSL);
     }
 	public:
 		void reset( bso::sBool P = true )
@@ -519,21 +924,11 @@ namespace sclx {
 			const str::dString &Script,
 			str::dString &Result )
 		{
-			Process_("Execute_1", &Result, Script);
+			Execute_(Script, &Result);
 		}
-		void Execute( const str::dString &Script )
+		void Execute(const str::dString &Script)
 		{
-			Process_("Execute_1", NULL, Script);
-		}
-		void Execute(
-			const char *Script,
-			str::dString &Result )
-		{
-			return Execute(str::wString(Script), Result);
-		}
-		void Execute(const char *Script)
-		{
-			return Execute(str::wString(Script));
+			Execute_(Script, NULL);
 		}
 		template <typename ...args> void Execute(
 			const char *TaggedScript,
@@ -566,6 +961,8 @@ namespace sclx {
 			const str::dString &Message,
 			const str::dString &Title,
 			const char *Language );	// Displays 'Message' as is. 'Language' is used for the closing text message.
+		// The basic confirm, without use of 'JQuery' based widget.
+		bso::sBool ConfirmB(const str::dString & Message);
 		bso::bool__ Confirm(
 			const str::dString &XML,
 			const str::dString &XSL,
@@ -577,33 +974,56 @@ namespace sclx {
 		bso::bool__ ConfirmT(
 			const str::dString &RawMessage,
 			const char *Language );
-		bso::bool__ ConfirmT(
-			const char *RawMessage,
-			const char *Language )
-		{
-			return ConfirmT(str::wString(RawMessage), Language);
-		}
 		bso::bool__ ConfirmU(
 			const str::dString &Message,
 			const char *Language );	// Displays 'Message' as is. 'Language' is used for the closing text message.
+    void Put(
+      const str::dString &Id,
+      ePosition Position,
+      const str::dString &XML,
+      const str::dString &XSL = str::Empty)
+    {
+      return HandleLayout_(Position, Id, XML, XSL);
+    }
+    void Before(
+      const str::dString &Id,
+      const str::dString &XML,
+      const str::dString &XSL = str::Empty)
+    {
+      return Put(Id, pBefore, XML, XSL);
+    }
+    void Begin(
+      const str::dString &Id,
+      const str::dString &XML,
+      const str::dString &XSL = str::Empty)
+    {
+      return Put(Id, pBegin,XML, XSL);
+    }
     void Inner(
       const str::dString &Id,
       const str::dString &XML,
       const str::dString &XSL = str::Empty)
     {
-      return HandleLayout_(str::wString("inner"), Id, XML, XSL);
+      return Put(Id, pInner, XML, XSL);
     }
     void End(
       const str::dString &Id,
       const str::dString &XML,
       const str::dString &XSL = str::Empty)
     {
-      return HandleLayout_(str::wString("beforeend"), Id, XML, XSL);
+      return Put(Id, pEnd, XML, XSL);
     }
-		template <typename s, typename t, typename u> void SetAttribute(
-			const s &Id,
-			const t &Name,
-			const u &Value )
+    void After(
+      const str::dString &Id,
+      const str::dString &XML,
+      const str::dString &XSL = str::Empty)
+    {
+      return Put(Id, pAfter, XML, XSL);
+    }
+    void SetAttribute(
+			const str::dString &Id,
+			const str::dString &Name,
+			const str::dString &Value )
 		{
 			Process_("SetAttribute_1", NULL, Id, Name, Value);
 		}
@@ -629,26 +1049,55 @@ namespace sclx {
 		{
       Process_("RemoveAttribute_1", NULL, Id, Name);
 		}
-		void GetValues(
-			const str::dStrings &Ids,
-			str::dStrings &Values );
-		template <typename c> const str::dString &GetValue(
-			const c &Id,
+		template <typename ids> void GetValues(
+			const ids &Ids,
+			str::dStrings &Values )
+    {
+    qRH;
+      str::wString MergedValues;
+    qRB;
+      MergedValues.Init();
+
+      Process_("GetValues_1", &MergedValues, Ids);
+
+      xdhcmn::FlatSplit(MergedValues, Values);
+    qRR;
+    qRT;
+    qRE;
+    }
+    template <typename type, int amount, typename gl> void GetValues(
+      const sIds<type, amount, gl> &Ids,
+      rValues<type, amount, gl> &Values)
+    {
+    qRH;
+      str::wStrings IdsAsStrings;
+    qRB;
+      IdsAsStrings.Init();
+
+      Ids.Fill(IdsAsStrings, Values.Links_);
+
+      GetValues(IdsAsStrings, Values.Values_);
+    qRR;
+    qRT;
+    qRE;
+    }
+		const str::dString &GetValue(
+			const str::dString &Id,
 			str::dString &Buffer )
 		{
 			GetValue_(Id, Buffer);
 
 			return Buffer;
 		}
-		template <typename c> const char *GetValue(
-			const c &Id,
+		const char *GetValue(
+			const str::dString &Id,
 			qCBUFFERh &Buffer )
 		{
 			GetValue_(Id, Buffer);
 
 			return Buffer;
 		}
-		template <typename c> bso::sBool GetBoolValue(const c &Id)
+		bso::sBool GetBoolValue(const str::dString &Id)
     {
       bso::sBool Result = false;
     qRH;
@@ -660,43 +1109,60 @@ namespace sclx {
     qRE;
       return Result;
     }
-    void GetMarks(
-			const str::dStrings &Ids,
-			str::dStrings &Marks );
-		template <typename c> const str::dString &GetMark(
-			const c &Id,
+    template <typename ids> void GetMarks(
+			const ids &Ids,
+			str::dStrings &Marks )
+    {
+      qRH;
+        str::wString MergedMarks;
+      qRB;
+        MergedMarks.Init();
+
+        Process_("GetMarks_1", &MergedMarks, Ids);
+
+        xdhcmn::FlatSplit(MergedMarks, Marks);
+      qRR;
+      qRT;
+      qRE;
+      }
+		const str::dString &GetMark(
+			const str::dString &Id,
 			str::dString &Buffer )
 		{
 			GetMark_(Id, Buffer);
 
 			return Buffer;
 		}
-		template <typename c> const char *GetMark(
-			const c &Id,
+		const char *GetMark(
+			const str::dString &Id,
 			qCBUFFERh &Buffer )
 		{
-			GetVMark_(Id, Buffer);
+			GetMark_(Id, Buffer);
 
 			return Buffer;
 		}
-    void SetValues(
-			const str::dStrings &Ids,
+    template <typename ids> void SetValues(
+			const ids &Ids,
 			const str::dStrings &Values )
 		{
 			Process_("SetValues_1", NULL, Ids, Values);
 		}
-		template <typename c1, typename c2> void SetValue(
-			const c1 &Id,
-			const c2 &Value )
+		void SetValue(
+			const str::dString &Id,
+			const str::dString &Value )
 		{
 			return SetValues(str::wStrings(Id),str::wStrings(Value));
 		}
-		template <typename chars> void Focus( const chars &Id )
+		template <typename type, int amount, typename gl> void SetValues(const rTValues<type, amount, gl> &Values)
+		{
+		  return SetValues(Values.Ids_, Values.Values_);
+		}
+		void Focus( const str::dString &Id )
 		{
 				Process_("Focus_1", NULL, Id);
 		}
-		template <typename chars> const char *Parent(
-			const chars &Id,
+		const char *Parent(
+			const str::dString &Id,
 			qCBUFFERh &Value )
 		{
 			Process_("Parent_1", Value, Id);
@@ -707,11 +1173,12 @@ namespace sclx {
 			const str::dString &Id,
 			qCBUFFERh &Value )
 		{
-			qRLmt();
+			Process_("FirstChild_1", Value, Id);
+
 			return Value;
 		}
-		template <typename chars> const char *LastChild(
-			const chars &Id,
+		const char *LastChild(
+			const str::dString &Id,
 			qCBUFFERh &Value )
 		{
 			Process_("LastChild_1", Value, Id);
@@ -722,14 +1189,16 @@ namespace sclx {
 			const str::dString &Id,
 			qCBUFFERh &Value )
 		{
-			qRLmt();
+			Process_("PreviousSibling_1", Value, Id);
+
 			return Value;
 		}
 		const char *NextSibling(
 			const str::dString &Id,
 			qCBUFFERh &Value )
 		{
-			qRLmt();
+			Process_("NextSibling_1", Value, Id);
+
 			return Value;
 		}
 		void InsertChild(
@@ -763,55 +1232,67 @@ namespace sclx {
 		xdhcmn::sIndex AppendCSSRule( const str::dString &Rule );
 		void RemoveCSSRule( xdhcmn::sIndex Index );
 		*/
-		void AddClasses(
-			const str::dStrings &Ids,
-			const str::dStrings &Classes )
+		template <typename c, typename ids> void AddClasses(
+			const ids &Ids,
+			const c &Classes )
 		{
-			return HandleClasses_("Add", Ids, Classes);
+			return HandleClasses_(aAdd, Ids, Classes);
 		}
-		template <typename c1, typename c2> void AddClass(
-			const c1 &Id,
-			const c2 &Class )
+		template <typename c> void AddClass(
+			const str::dString &Id,
+			const c &Class )
 		{
-			return AddClasses(str::wStrings(Id), str::wStrings(Class));
+			return AddClasses(str::wStrings(Id), Class);
 		}
-		void RemoveClasses(
-			const str::dStrings &Ids,
-			const str::dStrings &Classes )
+		template <typename c, typename ids> void RemoveClasses(
+			const ids &Ids,
+			const c &Classes )
 		{
-			return HandleClasses_("Remove", Ids, Classes);
+			return HandleClasses_(aRemove, Ids, Classes);
 		}
-		template <typename c1, typename c2> void RemoveClass(
-			const c1 &Id,
-			const c2 &Class )
+		template <typename c> void RemoveClass(
+			const str::dString &Id,
+			const c &Class )
 		{
-			return RemoveClasses(str::wStrings(Id), str::wStrings(Class));
+			return RemoveClasses(str::wStrings(Id), Class);
 		}
-		void ToggleClasses(
-			const str::dStrings &Ids,
-			const str::dStrings &Classes )
+		template <typename c, typename ids>  void ToggleClasses(
+			const ids &Ids,
+			const c &Classes )
 		{
-			return HandleClasses_("Toggle", Ids, Classes);
+			return HandleClasses_(aToggle, Ids, Classes);
 		}
-		template <typename c1, typename c2> void ToggleClass(
-			const c1 &Id,
-			const c2 &Class )
+		template <typename c> void ToggleClass(
+			const str::dString &Id,
+			const c &Class )
 		{
-			return ToggleClasses(str::wStrings(Id), str::wStrings(Class));
+			return ToggleClasses(str::wStrings(Id), Class);
 		}
-		void EnableElements( const str::dStrings &Ids );
-		void EnableElement( const str::dString &Id );
-		void EnableElement( const char *Id )
+		template <typename ids> void EnableElements( const ids &Ids )
 		{
-			EnableElement( str::wString( Id ) );
+      Process_("EnableElements_1", NULL, Ids);
 		}
-		void DisableElements( const str::dStrings &Ids );
-		void DisableElement( const str::dString &Id);
-		void DisableElement( const char *Id )
+		void EnableElement( const str::dString &Id )
 		{
-			DisableElement( str::wString( Id ) );
+		  return EnableElements(Id);
 		}
-		template <typename chars> void ScrollTo( const chars &Id )
+		template <typename ids> void Enable(const ids &Ids)
+		{
+		  EnableElements(Ids);
+		}
+		template <typename ids> void DisableElements(const ids &Ids)
+		{
+      Process_("DisableElements_1", NULL, Ids);
+		}
+		void DisableElement(const str::dString &Id)
+		{
+		  return DisableElements(Id);
+		}
+		template <typename ids> void Disable(const ids &Ids)
+		{
+		  DisableElements(Ids);
+		}
+		void ScrollTo(const str::dString &Id)
 		{
       Process_("ScrollTo_1", NULL, Id);
 		}
@@ -836,10 +1317,10 @@ namespace sclx {
 			const str::dString &Message ) override
 		{
 			if ( Reply == fblovl::rDisconnected )
-				P_().AlertT( str::wString("SCLXHTML_Disconnected"), str::wString(), L_() );
+				P_().AlertT("SCLXHTML_Disconnected", str::Empty, L_());
 			else {
 				//				sclmisc::ReportAndAbort( Message );
-				P_().AlertU( Message, str::wString(), L_() );
+				P_().AlertU( Message, str::Empty, L_() );
 				qRAbort();
 			}
 		}
@@ -915,7 +1396,7 @@ namespace sclx {
 
 	void Broadcast(
 		const str::dString &Action,
-		const str::dString &Id);
+		const str::dString &Id = str::Empty);
 
 	inline void LoadXSLAndTranslateTags(
 		const rgstry::tentry__ &FileName,
@@ -934,6 +1415,27 @@ namespace sclx {
 	void SCLXDismissCallback( xdhcdc::cSingle *Callback );	// To define by user.
 
 	extern bso::sBool (* SCLXGetHead)(str::dString &Head);  // To override for head handling by user.
+
+// 'typedef SXLX_VALUESr(…) …'
+# define SCLX_TVALUESr(type, amount, label_retriever)\
+class\
+: public sclx::rTValues_<type, amount>\
+{\
+public:\
+  void Init(void)\
+  {\
+    rTValues_::Init(label_retriever);\
+  }\
 }
+
+}
+
+/*************/
+/**** NEW ****/
+/*************/
+
+namespace sclx {
+  template <typename session> qTCLONE(actions_handler<session>, rActionsHandler);
+};
 
 #endif

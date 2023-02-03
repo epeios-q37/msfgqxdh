@@ -35,16 +35,23 @@ namespace main {
   qCDEF(sWidth, UndefinedWidth, bso::U8Max);
   qCDEF(sWidth, WidthMin, 10);
   qCDEF(sWidth, WidthMax, 25);
+  qCDEF(mscmld::sOctave, BaseOctaveMax, 9);
 
   class sSession
   : public sclx::sProxy
   {
   public:
+    mscmld::sOctave BaseOctave;
     sWidth Width;
+    mscmld::sRow Row;
+    bso::sBool MidiInAvailable;
     void reset(bso::sBool P = true)
     {
       sProxy::reset(P);
+      BaseOctave = mscmld::UndefinedOctave;
       Width = UndefinedWidth;
+      Row = qNIL;
+      MidiInAvailable = false;
     }
     qCDTOR( sSession );
     void Init(
@@ -57,7 +64,43 @@ namespace main {
     }
   };
 
-  extern sclx::action_handler<sSession> Core;
+  extern class rActionHelper
+  : public sclx::cActionHelper<sSession>
+  {
+  protected:
+		bso::bool__ SCLXOnBeforeAction(
+			sSession &Session,
+			const char *Id,
+			const char *Action ) override
+    {
+      return true;
+    }
+		void SCLXOnAfterAction(
+			sSession &Session,
+			const char *Id,
+			const char *Action ) override;
+		bso::bool__ SCLXOnClose( sSession &Session ) override
+		{
+		  return true;
+		}
+  public:
+    sclx::rActions
+      Before, After;
+    void reset(bso::sBool P = true)
+    {
+      tol::reset(P, Before, After);
+    }
+    qCDTOR(rActionHelper);
+    void Init(void)
+    {
+      reset();
+
+      tol::Init(Before, After);
+    }
+  } ActionHelper;
+
+  typedef sclx::rActionsHandler<sSession> rCore;
+  extern rCore Core;
 
   extern mscmdd::rRFlow MidiRFlow;
 }

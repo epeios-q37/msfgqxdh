@@ -17,28 +17,40 @@
 	along with the Epeios framework.  If not, see <http://www.gnu.org/licenses/>
 */
 
-#define BCH_COMPILATION_
+// MuSiC ABC (notation)
 
-#include "bch.h"
+#ifndef MSCABC_INC_
+# define MSCABC_INC_
 
-#include "sdr.h"
+# define MSCABC_NAME		"MSCABC"
 
-using namespace bch;
+# if defined( E_DEBUG ) && !defined( MSCABC_NODBG )
+#  define MSCABC_DBG
+# endif
 
-void bch::GetRelations_(
-	const uys::untyped_storage_ &Sorted,
-	const uys::untyped_storage_ &Unsorted,
-	sdr::size__ Size,
-	sdr::row_t__ Limit,
-	sdr::byte__ *Buffer,
-	E_BUNCH_( sdr::row__ ) &Relations )
-{
-	sdr::row_t__ Row = 0;
+# include "mscmld.h"
 
-	while ( Row < Limit ) {
-		Sorted.Fetch(Row, Size, Buffer, qRPDefault);
-		Relations.Append( Unsorted.Search( Buffer, Size, 0, Limit ) / Size );
+# include "bso.h"
+# include "err.h"
+# include "flx.h"
 
-		Row += Size;
-	}
+namespace mscabc {
+  bso::sS8 Convert(
+    const mscmld::dMelody &Melody,
+    mscmld::eAccidental Accidental,
+    bso::sU8 Width,
+    bso::sBool EscapeNL,
+    txf::sWFlow &ABC);
+
+  inline bso::sS8 Convert(
+    const mscmld::dMelody &Melody,
+    mscmld::eAccidental Accidental,
+    bso::sU8 Width,
+    bso::sBool EscapeNL,
+    str::dString &ABC)
+  {
+    return Convert(Melody, Accidental, Width, EscapeNL, flx::rStringTWFlow(ABC)());
+  }
 }
+
+#endif

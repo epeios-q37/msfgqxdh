@@ -1,8 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE xcmd2ly.xsl [
 <!ENTITY nl "&#13;&#10;">
-<!ENTITY tab "&#9;">
-<!ENTITY pad "    ">
+<!ENTITY pad "  ">
 ]>
 <xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
 	<xsl:output method="text" encoding="UTF-8"/>
@@ -201,7 +200,7 @@
 	<xsl:template match="Pitch" mode="First">
     <xsl:text> </xsl:text>
 		<xsl:apply-templates select="." mode="Common"/>
-    <xsl:variable name="OffO" select="number(@Octave) - number(/Melody/@BaseOctave)"/>
+    <xsl:variable name="OffO" select="number(@Octave) - 4"/>
     <xsl:if test="$OffO != 0">
       <xsl:call-template name="OctaveUpOrDown">
         <xsl:with-param name="Amount" select="$OffO"/>
@@ -246,7 +245,7 @@
 				</xsl:call-template>
 			</xsl:if>
 		</xsl:if>
-		<xsl:if test="@TiedToNext='yes'">
+		<!--xsl:if test="@TiedToNext='yes'">
 			<xsl:if test="not(@TiedToPrevious) or (@TiedToPrevious='no')">
 				<xsl:text>(</xsl:text>
 			</xsl:if>
@@ -255,6 +254,9 @@
 			<xsl:if test="not(@TiedToNext) or (@TiedToNext='no')">
 				<xsl:text>)</xsl:text>
 			</xsl:if>
+		</xsl:if-->
+		<xsl:if test="@TiedToNext='yes'">
+      <xsl:text>~</xsl:text>
 		</xsl:if>
 	</xsl:template>
 </xsl:stylesheet>

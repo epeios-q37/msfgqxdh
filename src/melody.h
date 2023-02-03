@@ -41,29 +41,19 @@ namespace melody {
   : public wMelody_
   {
   public:
-    mscmld::sRow Row;
-    mscmld::sOctave BaseOctave;
     mscmld::sSignature Signature;
     mscmld::eAccidental Accidental; // Accidental to use for altered notes when in C key.
-    bso::sBool Overwrite;
     void reset(bso::sBool P = true)
     {
       wMelody::reset(P);
-      Row = qNIL;
-      BaseOctave = mscmld::UndefinedOctave;
       Signature.reset(P);
       Accidental = mscmld::a_Undefined;
-      Overwrite = false;
     }
     qCDTOR(rXMelody);
     void Init(void)
     {
       wMelody::Init();
-      Row = qNIL;
-      BaseOctave = 2;
       Signature.Init();
-      Accidental = mscmld::aSharp;
-      Overwrite = false;
     }
   };
 
@@ -72,11 +62,11 @@ namespace melody {
   typedef mtx::rHandle hGuard;
 
   rXMelody &Get(hGuard &Guard);
-
+/*
   bso::sS8 Handle(
     mscmld::sNote Note,
     rXMelody &XMelody);
-
+*/
   void HandleKeyAndAccidental(
     bso::sU8 Key,
     mscmld::eAccidental Accidental,

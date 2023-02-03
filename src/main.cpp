@@ -19,8 +19,10 @@
 
 #include "main.h"
 
+#include "midiq.h"
 #include "registry.h"
 
+#include "mscabc.h"
 #include "mscmdd.h"
 
 #include "mthrtn.h"
@@ -30,20 +32,196 @@
 
 using namespace main;
 
-sclx::action_handler<sSession> main::Core;
+rActionHelper main::ActionHelper;
+
+rCore main::Core;
 
 mscmdd::rRFlow main::MidiRFlow;
 
 namespace {
+  qENUM( Id_ ) {
+    iWidthRangeInput,
+    iWidthNumberInput,
+    iMidiIn,
+    iGrabMidiIn,
+    iAccidentalAmount,
+    iAccidental,
+    iNumerator,
+    iDenominator,
+    iOctave,
+    iFirst,
+    iPrevious,
+    iNext,
+    iLast,
+    iDelete,
+    iClear,
+    iScripts,
+    iEmbedded,
+    iOutput,
+    i_amount,
+    i_Undefined
+  };
+
+#define C_( name )\
+  case i##name:\
+  return #name;\
+  break
+
+  const char *GetLabel_( eId_ Id )
+  {
+    switch ( Id ) {
+    C_( WidthRangeInput );
+    C_( WidthNumberInput );
+    C_( MidiIn );
+    C_( GrabMidiIn );
+    C_( AccidentalAmount );
+    C_( Accidental );
+    C_( Numerator );
+    C_( Denominator );
+    C_( Octave );
+    C_( First );
+    C_( Previous );
+    C_( Next );
+    C_( Last );
+    C_( Delete );
+    C_( Clear );
+    C_( Scripts );
+    C_( Embedded );
+    C_( Output );
+/*
+    C_(  );
+*/
+    default:
+      qRGnr();
+      break;
+
+    }
+
+    return NULL;  // To avoid a warning.
+  }
+
+#undef C_
+
+  namespace _ {
+    class gl {
+    public:
+      static const char *GetLabel(eId_ Id)
+      {
+        return ::GetLabel_(Id);
+      }
+    };
+  }
+
+  typedef sclx::sIds<eId_, i_amount, _::gl> sIds_;
+  typedef sclx::rValues<eId_, i_amount, _::gl> rValues_;
+  typedef sclx::rTValues<eId_, i_amount, _::gl> rTValues_;
+
+  sIds_
+    Navigation_(iFirst, iPrevious, iNext, iLast),
+    Removing_(iDelete, iClear),
+    All_(Navigation_, Removing_, iGrabMidiIn, iMidiIn);
+}
+
+#define XMEL() melody::rXMelody &XMelody = melody::Get(Guard)
+#define CXMEL() const XMEL()
+
+#define L_(name)  GetLabel_(name)
+
+namespace {
+  namespace _ {
+    mtx::rMutex Mutex;
+    str::wString DeviceId;
+    const sSession *Owner = NULL;
+  }
+
+  void InitializeMidiInOwning_(void)
+  {
+    _::Mutex = mtx::Create();
+    _::DeviceId.Init();
+    _::Owner = NULL;
+  }
+
+  bso::sBool IsMidiInOwner_(const sSession &Session )
+  {
+    bso::sBool IsOwner = false;
+  qRH;
+    mtx::rHandle Handler;
+  qRB;
+    Handler.InitAndLock(_::Mutex);
+
+    IsOwner = _::Owner == &Session;
+  qRR;
+  qRT;
+  qRE;
+    return IsOwner;
+  }
+
+  namespace _ {
+    void LaunchMidiIn(sSession &Session)
+    {
+      midiq::sShared Shared;
+
+      _::DeviceId.Init();
+      Session.GetValue(L_( iMidiIn ), _::DeviceId);
+
+      Shared.RFlow = &main::MidiRFlow;
+      Shared.MIDIDeviceIn = &_::DeviceId;
+
+      mtk::Launch(midiq::_HandleInput, &Shared);
+    }
+  }
+
+  void GrabMidiIn_(sSession &Session )
+  {
+  qRH;
+    mtx::rHandle Handler;
+  qRB;
+    Handler.InitAndLock(_::Mutex);
+
+    if ( _::DeviceId.Amount() == 0 )
+      _::LaunchMidiIn(Session);
+
+    _::Owner = &Session;
+  qRR;
+  qRT;
+  qRE;
+  }
+
+  bso::sBool IsMidiInActivated_(str::wString *Id = NULL)
+  {
+    bso::sBool Activated = false;
+  qRH;
+    mtx::rHandle Handler;
+  qRB;
+    Handler.InitAndLock(_::Mutex);
+
+    Activated = _::DeviceId.Amount() != 0;
+
+    if ( Activated && ( Id != NULL ) )
+      Id->Append(_::DeviceId);
+
+  qRR;
+  qRT;
+  qRE;
+    return Activated;
+  }
+
+  bso::sBool IsMidiInActivated_(str::wString &Id)
+  {
+    return IsMidiInActivated_(&Id);
+  }
+
+}
+
+namespace {
   namespace {
-    bso::sBool Fill_(
+    void Fill_(
       const str::dString  &Id,
       const str::dStrings &Ids,
       const str::dStrings &Names,
       txf::rWFlow &XHTML)
     {
       sdr::sRow Row = Ids.First();
-      bso::sBool Available = false;
 
       if ( Ids.Amount() != Names.Amount() )
         qRGnr();
@@ -51,112 +229,31 @@ namespace {
       while ( Row != qNIL ) {
         XHTML << "<option value=\"" << Ids(Row) << "\" ";
 
-        if ( Ids(Row) == Id ) {
-          Available = true;
+        if ( Ids(Row) == Id )
           XHTML << " selected=\"true\"";
-        }
 
-        XHTML <<  " disabled=\"true\">" << Names(Row) << " (" << Ids(Row) << ")" << "</option>" << txf::nl;
+        XHTML <<  '>' << Names(Row) << " (" << Ids(Row) << ")" << "</option>" << txf::nl;
         Row = Ids.Next(Row);
       }
-
-      return Available;
     }
   }
 
-  bso::sBool Fill_(
+  void Fill_(
     const str::dString  &Id,
     const str::dStrings &Ids,
     const str::dStrings &Names,
     str::dString &XHTML)
   {
-    bso::sBool Available = false;
   qRH;
     flx::rStringWDriver SDriver;
     txf::rWFlow TFlow;
   qRB;
     SDriver.Init(XHTML);
     TFlow.Init(SDriver);
-    Available = Fill_(Id, Ids, Names, TFlow);
+    Fill_(Id, Ids, Names, TFlow);
   qRR;
   qRT;
   qRE;
-    return Available;
-  }
-
-  namespace _ {
-    namespace _ {
-      namespace _ {
-        qENUM( Policy ) {
-          pId,
-          pName,
-          p_amount,
-          p_Undefined
-        };
-
-        static ePolicy GetPolicy(const rgstry::sTEntry &Entry)
-        {
-          ePolicy Policy = p_Undefined;
-        qRH;
-          str::wString RawPolicy;
-        qRB;
-          RawPolicy.Init();
-
-          sclm::MGetValue( Entry, RawPolicy );
-
-          if ( RawPolicy == "Id" )
-            Policy = pId;
-          else if ( RawPolicy == "Name" )
-            Policy = pName;
-          else
-            sclr::ReportBadOrNoValueForEntryErrorAndAbort( Entry );
-        qRR;
-        qRT;
-        qRE;
-          return Policy;
-        }
-      }
-
-      str::dString &GetDeviceId(
-        mscmdd::eWay Way,
-        const rgstry::sTEntry &PolicyEntry,
-        const rgstry::sTEntry &ValueEntry,
-        str::dString &Id)
-      {
-      qRH;
-        qCBUFFERh Buffer;
-      qRB;
-        switch ( _::GetPolicy( PolicyEntry ) ) {
-        case _::pId:
-          sclm::OGetValue(ValueEntry, Id);
-          break;
-        case _::pName:
-          qRVct();
-          break;
-        default:
-          qRGnr();
-          break;
-        }
-      qRR;
-      qRT;
-      qRE;
-        return Id;
-      }
-    }
-
-    const str::dString &GetDeviceInId(str::dString &Id)
-    {
-      return _::GetDeviceId(mscmdd::wIn, registry::parameter::devices::in::Policy, registry::parameter::devices::in::Value, Id);
-    }
-
-    const str::dString &GetDeviceOutId(str::dString &Id)
-    {
-      /*
-      Id.Append("hw:1,0");
-      return Id;
-      */
-      return _::GetDeviceId(mscmdd::wOut, registry::parameter::devices::out::Policy, registry::parameter::devices::out::Value, Id);
-    }
   }
 
   bso::sBool _FillMidiInDevices_(
@@ -169,16 +266,17 @@ namespace {
   qRB;
     tol::Init(Ids, Names);
 
-    mscmdd::GetMidiInDeviceNames(Ids, Names);
+    Available = mscmdd::GetMidiInDeviceNames(Ids, Names) != 0;
 
-    Available = Fill_(Id, Ids, Names, XHTML);
+    if ( Available )
+      Fill_(Id, Ids, Names, XHTML);
   qRR;
   qRT;
   qRE;
     return Available;
   }
 
-  bso::sBool _FillMidiOutDevices_(
+  bso::sBool FillMidiOutDevices_(
     const str::dString &Id,
     str::dString &XHTML)
   {
@@ -188,9 +286,10 @@ namespace {
   qRB;
     tol::Init(Ids, Names);
 
-    mscmdd::GetMidiOutDeviceNames(Ids, Names);
+    Available = mscmdd::GetMidiOutDeviceNames(Ids, Names) != 0;
 
-    Available = Fill_(Id, Ids, Names, XHTML);
+    if ( Available )
+      Fill_(Id, Ids, Names, XHTML);
   qRR;
   qRT;
   qRE;
@@ -205,177 +304,8 @@ namespace {
   SCLX_ADef( sSession, actions_, name )
 
 namespace {
-  namespace _ {
-    bso::sS8 Convert(
-      const mscmld::sNote &Note,
-      mscmld::sOctave BaseOctave,
-      mscmld::eAccidental Accidental,
-      const char *Separator,
-      txf::sWFlow &Flow)
-    {
-      const char *Label = NULL;
-      bso::sS8 RawDuration = 0;
-      mthrtn::wRational Duration;
-      bso::sS8 RelativeOctave;
-      bso::pInteger Buffer;
-      char PitchNotation[] = {0,0,0};
-      mscmld::sAltPitch Pitch;
-
-      Pitch.Init();
-
-      mscmld::Convert(Note, Accidental, Pitch);
-
-      Label = mscmld::GetLabel(Pitch);
-      RawDuration = Note.Duration.Base;
-
-      Duration.Init(mthrtn::wRational(1,1 << (RawDuration - 1)) * mthrtn::wRational(( 2 << Note.Duration.Modifier ) - 1, 1 << Note.Duration.Modifier));
-      RelativeOctave = Pitch.Octave - BaseOctave;
-
-
-      if ( Pitch.Name == mscmld::pnRest ) {
-        Flow << "z";
-      } else {
-        if ( RelativeOctave < 0 )
-          return RelativeOctave;
-
-        if ( RelativeOctave > 3 )
-          return RelativeOctave - 3;
-
-        if ( strlen(Label) != 1 )
-          qRGnr();
-
-        switch ( RelativeOctave ) {
-        case 0:
-          PitchNotation[1] = ',';
-        case 1:
-          PitchNotation[0] = toupper(Label[0]);
-          break;
-        case 3:
-          PitchNotation[1] = '\'';
-        case 2:
-          PitchNotation[0] = tolower(Label[0]);
-          break;
-        default:
-          qRGnr();
-          break;
-        }
-
-        switch ( Pitch.Accidental ) {
-        case mscmld::aSharp:
-          Flow << '^';
-          break;
-        case mscmld::aFlat:
-          Flow << '_';
-          break;
-        case mscmld::aNatural:
-          break;
-        default:
-          qRGnr();
-          break;
-        }
-
-        Flow << PitchNotation;
-      }
-
-      Flow << bso::Convert(Duration.N.GetU32(), Buffer) << '/' << bso::Convert(Duration.D.GetU32(), Buffer);
-
-      if ( Note.Duration.TiedToNext )
-        Flow << '-';
-
-      Flow << " [|]" << Separator;
-
-      return 0;
-    }
-
-    namespace _ {
-      qCDEFC(EscapedNL, "\\n");
-      qCDEFC(NL, "\n");
-    }
-
-    bso::sS8 Convert(
-      const mscmld::dMelody &Melody,
-      mscmld::sOctave BaseOctave,
-      mscmld::eAccidental Accidental,
-      bso::sBool EscapeNL,
-      bso::sU8 Width,
-      txf::sWFlow &Flow)
-    {
-      bso::sS8 Return = 0;
-      mscmld::sRow Row = Melody.First();
-      bso::sUHuge Counter = 1;
-
-      const char *&NL = EscapeNL ? _::EscapedNL : _::NL;
-
-      Flow << "X: 1" << NL << "T:" << NL << "L: 1" << NL << "K: C" << NL;
-
-      if ( Row == qNIL )
-        Flow << "[|]";
-
-      while ( ( Return == 0 ) && ( Row != qNIL ) ) {
-        Return = Convert(Melody(Row), BaseOctave, Accidental, Counter++ % Width ? " " : NL, Flow);
-
-        Row = Melody.Next(Row);
-      }
-
-      return Return;
-    }
-  }
-
-  bso::sS8 GetABC_(
-    const mscmld::dMelody &Melody,
-    mscmld::sOctave BaseOctave,
-    mscmld::eAccidental Accidental,
-    bso::sBool EscapeNL,
-    bso::sU8 Width,
-    txf::sWFlow &Flow)
-  {
-    return _::Convert(Melody, BaseOctave, Accidental, EscapeNL, Width, Flow);
-  }
-
-  bso::sS8 GetABC_(
-    const melody::rXMelody &XMelody,
-    sWidth Width,
-    bso::sBool EscapeNL,
-    txf::sWFlow &Flow)
-  {
-    return GetABC_(XMelody, XMelody.BaseOctave, XMelody.Accidental, EscapeNL, Width, Flow);
-  }
-
-  bso::sS8 GetABC_(
-    const melody::rXMelody &XMelody,
-    sWidth Width,
-    bso::sBool EscapeNL,
-    str::dString &ABC)
-  {
-    bso::sS8 Return = 0;
-  qRH;
-    flx::rStringTWFlow Flow;
-  qRB;
-    Flow.Init(ABC);
-
-    Return = GetABC_(XMelody, Width, EscapeNL, Flow);
-  qRR;
-  qRT;
-  qRE;
-    return Return;
-  }
-
   namespace {
-    namespace {
-      void HighlightNote_(
-        mscmld::sRow Row,
-        str::dString &Script)
-      {
-        bso::pInt Buffer;
-
-        Script.Append("highlightNote(\"");
-        if ( Row != qNIL)
-          Script.Append(bso::Convert(*Row, Buffer));
-        Script.Append("\");");
-      }
-    }
-
-    bso::sBool DisplayMelody_(
+    bso::sBool Display_(
       const melody::rXMelody &XMelody,
       main::sSession &Session)
     {
@@ -383,21 +313,17 @@ namespace {
     qRH;
       str::wString ABC, Script;
       bso::sS8 OctaveOverflow = 0;
+      bso::pInt Buffer;
     qRB;
       tol::Init(ABC, Script);
 
-      OctaveOverflow = GetABC_(XMelody, Session.Width, true, ABC);
+      OctaveOverflow = mscabc::Convert(XMelody, XMelody.Accidental, Session.Width, true, ABC);
 
-      if ( OctaveOverflow != 0 )
-        Session.AlertB(str::wString("Octave error !!!"));
+      if ( false && ( OctaveOverflow != 0 ) )
+        Session.AlertB("Octave error !!!");
       else {
-        Script.Init("load(\"");
-        Script.Append(ABC);
-        Script.Append("\");");
-
-        HighlightNote_(XMelody.Row, Script);
-
-        Script.Append("updatePlayer();");
+        Script.Init();
+        flx::rStringTOFlow(Script) << "renderABC(\"" << ABC << "\");" << "highlightNote(\"" << ( Session.Row == qNIL ? "" : bso::Convert(*Session.Row, Buffer) ) << "\");" << "updatePlayer();";
 
         Session.Execute(Script);
 
@@ -459,70 +385,73 @@ namespace {
     sSession &Session)
     {
     qRH;
-      str::wStrings Ids, Values;
+      rTValues_ Values;
     qRB;
-      tol::Init(Ids, Values);
+      Values.Init();
 
-      Ids.AppendMulti("WidthRangeInput", "WidthNumberInput");
-      Values.AppendMulti(Value, Value);
+      Values.Add(iWidthRangeInput, Value);
+      Values.Add(iWidthNumberInput, Value);
 
-      Session.SetValues(Ids, Values);
+      Session.SetValues(Values);
     qRR;
     qRT;
     qRE;
   }
 
-  void UpdateUI_(
+  bso::sBool SetUI_(
     const melody::rXMelody &XMelody,
     sSession &Session)
     {
+      bso::sBool MidiInAvailable = false;
     qRH;
-      str::wString XHTML, Device;
+      str::wString DeviceId, XHTML;
       mscmld::eAccidental Accidental = mscmld::a_Undefined;
       bso::pInt IBuffer;
       qCBUFFERh CBuffer;
+      rTValues_ Values;
     qRB;
-      Device.Init();
-      _::GetDeviceInId(Device);
+      tol::Init(DeviceId, XHTML, Values);
 
-      XHTML.Init();
+      if ( !IsMidiInActivated_(DeviceId) )
+        midiq::GetDeviceInId(DeviceId);
 
-      if ( _FillMidiInDevices_(Device, XHTML) )
-        Session.RemoveAttribute(str::wString(Session.Parent("beautiful-piano", CBuffer)), str::wString("open"));
+      if ( ( MidiInAvailable = _FillMidiInDevices_(DeviceId, XHTML) ) )
+        Session.RemoveAttribute(Session.Parent("beautiful-piano", CBuffer), "open");
       else
-        Session.SetValue("MidiIn", "None");
+        Values.Add(iMidiIn, "None");
 
-      Session.End(str::wString("MidiIn"), XHTML);
+      if ( XHTML.Amount() )
+        Session.Inner(L_( iMidiIn ), XHTML);
 
       /*
       XHTML.Init();
       FillMidiOutDevices_(XHTML);
-      Session.Inner(str::wString("MidiOut"), XHTML);
+      Session.Inner("MidiOut", XHTML);
       */
 
-      Session.SetValue("AccidentalAmount", bso::Convert(abs(XMelody.Signature.Key), IBuffer));
+      Values.Add(iAccidentalAmount, abs(XMelody.Signature.Key));
 
       Accidental = XMelody.Signature.Key ? XMelody.Signature.Key > 0 ? mscmld::aSharp : mscmld::aFlat : XMelody.Accidental;
-      Session.SetValue("Accidental", mscmld::GetLabel(Accidental));
+      Values.Add(iAccidental, mscmld::GetLabel(Accidental));
 
-      Session.SetValue("Numerator", bso::Convert(XMelody.Signature.Time.Numerator(), IBuffer));
-      Session.SetValue("Denominator", bso::Convert(XMelody.Signature.Time.Denominator(), IBuffer));
+      Values.Add(iNumerator, XMelody.Signature.Time.Numerator());
+      Values.Add(iDenominator, XMelody.Signature.Time.Denominator());
 
-      Session.SetValue("Octave", bso::Convert(XMelody.BaseOctave, IBuffer));
+      Values.Add(iOctave, Session.BaseOctave);
 
-      UpdateUIWidth_(str::wString(bso::Convert(Session.Width, IBuffer)), Session);
+      Session.SetValues(Values);
+
+      UpdateUIWidth_(bso::Convert(Session.Width, IBuffer), Session);
 
       XHTML.Init();
       GetScriptsXHTML_(XHTML);
-      Session.End(str::wString("Scripts"), XHTML);
+      Session.End(L_( iScripts ), XHTML);
     qRR;
     qRT;
     qRE;
+      return MidiInAvailable;
     }
 }
-
-#define XMEL() melody::rXMelody &XMelody = melody::Get(Guard)
-#define CXMEL() const XMEL()
 
 D_( OnNewSession )
 {
@@ -535,21 +464,83 @@ qRB;
   if ( Session.Width < WidthMin )
     sclr::ReportBadOrNoValueForEntryErrorAndAbort(registry::parameter::Width);
 
+  Session.BaseOctave = sclm::MGetU8(registry::parameter::BaseOctave, BaseOctaveMax);
+
   Body.Init();
   sclm::MGetValue(registry::definition::Body, Body);
 
   Session.Inner(str::Empty, Body);
 
   CXMEL();
-  UpdateUI_(XMelody, Session);
+  Session.MidiInAvailable = SetUI_(XMelody, Session);
 
   Session.Execute("createStylesheet();");
 
-  DisplayMelody_(XMelody, Session);
   Session.Execute("activate()");
 qRR;
 qRT;
 qRE;
+}
+
+namespace {
+  void UpdateUI_(
+    sSession &Session,
+    const melody::rXMelody &XMelody)
+  {
+  qRH;
+    sIds_ Ids;
+  qRB;
+    Ids.Init(); // First contains ids of element which had to be disabled!
+
+    if ( !XMelody.Exists(Session.Row) )
+      Session.Row = XMelody.Last();
+
+    if ( Session.Row == qNIL )
+      Ids.Put(Navigation_, Removing_);
+    else {
+      if ( Session.Row == XMelody.First() )
+        Ids.Put(iFirst, iPrevious);
+      if ( Session.Row == XMelody.Last() )
+        Ids.Put(iNext, iLast);
+    }
+
+    if ( Session.MidiInAvailable ) {
+      if ( IsMidiInActivated_() ) {
+        Ids.Put(iMidiIn);
+
+      if ( IsMidiInOwner_(Session) )
+        Ids.Put(iGrabMidiIn);
+      }
+    } else
+      Ids.Put(iGrabMidiIn, iMidiIn);
+
+    Session.Disable(Ids);
+
+    Ids.Invert(All_);
+
+    Session.Enable(Ids);
+
+    Display_(XMelody, Session);
+  qRR;
+  qRT;
+  qRE;
+  }
+}
+
+D_( UpdateUI )
+{
+qRH;
+  melody::hGuard Guard;
+qRB;
+  UpdateUI_(Session, melody::Get(Guard));
+qRR;
+qRT;
+qRE;
+}
+
+D_( GrabMidiIn )
+{
+  GrabMidiIn_(Session);
 }
 
 D_( Hit )
@@ -557,14 +548,25 @@ D_( Hit )
 qRH;
   str::wString Script;
   melody::hGuard Guard;
+  mscmld::sNote Note;
 qRB;
-  Script.Init("ABCJS.synth.playEvent([{\"cmd\":\"note\", \"pitch\":");
-  Script.Append(Id);
-  Script.Append(",\"durationInMeasures\":0.125,\"start\":0, \"volume\":70,\"instrument\":0,\"gap\":0}], [], 1000).then(function (response) {console.log(\"note played\");}).catch(function (error) {	console.log(\"error playing note\", error);});");
-  Session.Execute(Script);
+  if ( IsMidiInOwner_(Session) ) {
+    Script.Init();
+    flx::rStringTWFlow(Script) << "play(" << Id << ");";
+    Session.Execute(Script);
+  }
 
-  CXMEL();
-  DisplayMelody_(XMelody, Session);
+  if ( IsMidiInOwner_(Session ) ) {
+      XMEL();
+      Note.Init(str::wString(Id).ToU8(), mscmld::sDuration(3), XMelody.Signature);
+
+    if ( Session.Row == qNIL )
+      Session.Row = XMelody.Append(Note);
+    else {
+      XMelody.InsertAt(Note, XMelody.Next(Session.Row) );
+      Session.Row = XMelody.Next(Session.Row);
+    }
+  }
 qRR;
 qRT;
 qRE;
@@ -576,13 +578,16 @@ namespace {
     sSession &Session)
   {
   qRH;
-    str::wString RawKey, RawAccidental;
+    rValues_ Values;
+    str::wString RawAccidental;
   qRB;
-    tol::Init(RawAccidental, RawKey);
-    Session.GetValue("AccidentalAmount", RawKey);
-    Session.GetValue("Accidental", RawAccidental);
+    tol::Init(Values, RawAccidental);
 
-    melody::HandleKeyAndAccidental(RawKey.ToU8(), mscmld::GetAccidental(RawAccidental), XMelody);
+    Session.GetValues(sIds_(iAccidentalAmount, iAccidental), Values);
+
+    Values.Get(iAccidental, RawAccidental);
+
+    melody::HandleKeyAndAccidental(Values.Get<bso::sU8>(iAccidentalAmount), mscmld::GetAccidental(RawAccidental), XMelody);
   qRR;
   qRT;
   qRE;
@@ -597,8 +602,6 @@ qRB;
   XMEL();
 
   HandleKeyAndAccidental_(XMelody, Session);
-
-  DisplayMelody_(XMelody, Session);
 qRR;
 qRT;
 qRE;
@@ -626,12 +629,15 @@ D_( Refresh )
 
 D_( SelectNote )
 {
+qRH;
   melody::hGuard Guard;
+qRB;
+  str::wString(Id).ToNumber(*Session.Row);
 
-  melody::rXMelody &XMelody = melody::Get(Guard);
-
-  str::wString(Id).ToNumber(*XMelody.Row);
-  DisplayMelody_(XMelody, Session);
+  UpdateUI_(Session, melody::Get(Guard));
+qRR;
+qRT;
+qRE;
 }
 
 D_( Rest )
@@ -641,17 +647,15 @@ qRH;
 qRB;
   XMEL();
 
-  if ( XMelody.Row != qNIL ) {
-    mscmld::sNote Note = XMelody(XMelody.Row);
+  if ( Session.Row != qNIL ) {
+    mscmld::sNote Note = XMelody(Session.Row);
 
     Note.Pitch = mscmld::pRest;
     Note.Duration.TiedToNext = false;
 
-    XMelody.Store(Note, XMelody.Row);
+    XMelody.Store(Note, Session.Row);
 
-    XMelody.Row = XMelody.Next(XMelody.Row);
-
-    DisplayMelody_(XMelody, Session);
+    Session.Row = XMelody.Next(Session.Row);
   }
 qRR;
 qRT;
@@ -665,16 +669,15 @@ qRH;
 qRB;
   XMEL();
 
-  if ( XMelody.Row != qNIL ) {
-    mscmld::sNote Note = XMelody(XMelody.Row);
+  if ( Session.Row != qNIL ) {
+    mscmld::sNote Note = XMelody(Session.Row);
 
     str::wString(Id).ToNumber(Note.Duration.Base);
 
-    XMelody.Store(Note, XMelody.Row);
+    XMelody.Store(Note, Session.Row);
 
-    XMelody.Row = XMelody.Next(XMelody.Row);
-
-    DisplayMelody_(XMelody, Session);
+    if ( Session.Row != XMelody.Last() )
+      Session.Row = XMelody.Next(Session.Row);
   }
 qRR;
 qRT;
@@ -688,17 +691,15 @@ qRH;
 qRB;
   XMEL();
 
-  if ( XMelody.Row != qNIL ) {
-    mscmld::sNote Note = XMelody(XMelody.Row);
+  if ( Session.Row != qNIL ) {
+    mscmld::sNote Note = XMelody(Session.Row);
 
     if ( Note.Duration.Modifier >= 3 )
       Note.Duration.Modifier = 0;
     else
       Note.Duration.Modifier++;
 
-    XMelody.Store(Note, XMelody.Row);
-
-    DisplayMelody_(XMelody, Session);
+    XMelody.Store(Note, Session.Row);
   }
 qRR;
 qRT;
@@ -712,29 +713,28 @@ qRH;
 qRB;
   XMEL();
 
-  if ( XMelody.Row != qNIL ) {
-    mscmld::sNote Note = XMelody(XMelody.Row);
+  if ( Session.Row != qNIL ) {
+    mscmld::sNote Note = XMelody(Session.Row);
 
     if ( Note.Pitch != mscmld::pRest ) {
       if ( Note.Duration.TiedToNext ) {
         Note.Duration.TiedToNext = false;
-        XMelody.Store(Note, XMelody.Row);
+        XMelody.Store(Note, Session.Row);
+        XMelody.Remove(XMelody.Next(Session.Row));
       } else {
         Note.Duration.TiedToNext = true;
-        XMelody.Store(Note, XMelody.Row);
+        XMelody.Store(Note, Session.Row);
         Note.Duration.TiedToNext = false;
         Note.Duration.Modifier = 0;
         Note.Duration.Base = 3;
 
-        mscmld::sRow Row = XMelody.Next(XMelody.Row);
+        mscmld::sRow Row = XMelody.Next(Session.Row);
 
         if ( Row == qNIL )
           XMelody.Append(Note);
         else
           XMelody.InsertAt(Note, Row);
       }
-
-      DisplayMelody_(XMelody, Session);
     }
   }
 qRR;
@@ -746,7 +746,6 @@ namespace {
   void ToXML_(
     const mscmld::dMelody &Melody,
     mscmld::eAccidental Accidental,
-    mscmld::sOctave BaseOctave,
     txf::sWFlow &Flow)
   {
   qRH;
@@ -758,7 +757,6 @@ namespace {
 
     Writer.PushTag("Melody");
     Writer.PutAttribute("Amount", Melody.Amount() );
-    Writer.PutAttribute("BaseOctave", BaseOctave);
 
     mscmld::WriteXML(Melody, Accidental, Writer);
 
@@ -772,7 +770,7 @@ namespace {
     const melody::rXMelody &XMelody,
     txf::sWFlow &Flow)
   {
-    ToXML_(XMelody, XMelody.Accidental, XMelody.BaseOctave, Flow);
+    ToXML_(XMelody, XMelody.Accidental, Flow);
 
     Flow << txf::nl;  // Without this, with an empty melody the root 'Melody' will not be available for the script.
   }
@@ -793,7 +791,7 @@ namespace {
       B64Flow.Init(Flow.Flow(), cdgb64::fURL);
       B64TWFlow.Init(B64Flow);
 
-      GetABC_(XMelody, Width, false, B64TWFlow);
+      mscabc::Convert(XMelody, XMelody.Accidental, Width, false, B64TWFlow);
     qRR;
     qRT;
     qRE;
@@ -814,7 +812,7 @@ qRH;
 	int C;
 	bso::sBool EmbedScriptResult = false;
 qRB;
-  EmbedScriptResult = Session.GetBoolValue("Embedded");
+  EmbedScriptResult = Session.GetBoolValue(L_( iEmbedded ));
 
   tol::Init(Mark, Script, Mime);
   Session.GetMark(Id, Mark);
@@ -863,10 +861,10 @@ qRB;
 	OFlow.reset();
 
 	if ( EmbedScriptResult ) {
-    Session.Inner(str::wString("Output"), Output);
-    Session.Execute(str::wString("resizeOutputIFrame();"));
+    Session.Inner(L_( iOutput ), Output);
+    Session.Execute("resizeOutputIFrame();");
     Session.SetAttribute(Session.Parent("Output", Buffer), "open", "true");
-    Session.ScrollTo("Output");
+    Session.ScrollTo(L_( iOutput ));
   } else
     Session.Execute(Output);
 qRR;
@@ -874,55 +872,114 @@ qRT;
 qRE;
 }
 
-D_( Cursor )
+D_( First )
 {
 qRH;
-  str::wString Cursor;
   melody::hGuard Guard;
 qRB;
-  Cursor.Init();
+  CXMEL();
 
-  Session.GetValue(Id, Cursor);
+  if ( Session.Row != XMelody.First() ) {
+    Session.Row = XMelody.First();
 
-  XMEL();
-  XMelody.Overwrite = Cursor == "Overwrite";
+    UpdateUI_(Session, XMelody);
+  }
 qRR;
 qRT;
 qRE;
 }
 
-D_( Append )
+D_( Previous )
 {
 qRH;
   melody::hGuard Guard;
 qRB;
-  XMEL();
+  CXMEL();
 
-  XMelody.Row = qNIL;
+  if ( Session.Row != XMelody.First() ) {
+    Session.Row = XMelody.Previous(Session.Row);
 
-  DisplayMelody_(XMelody, Session);
+    UpdateUI_(Session, XMelody);
+  }
 qRR;
 qRT;
 qRE;
 }
 
-D_( Suppr )
+D_( Next )
 {
 qRH;
   melody::hGuard Guard;
-  bso::sBool IsLast = false;
 qRB;
-  XMEL();
+  CXMEL();
 
-  if ( XMelody.Row != qNIL ) {
-    IsLast = XMelody.Row == XMelody.Last();
+  if ( Session.Row != XMelody.Last() ) {
+    Session.Row = XMelody.Next(Session.Row);
 
-    XMelody.Remove(XMelody.Row);
+    UpdateUI_(Session, XMelody);
+  }
+qRR;
+qRT;
+qRE;
+}
+
+D_( Last )
+{
+qRH;
+  melody::hGuard Guard;
+qRB;
+  CXMEL();
+
+  if ( Session.Row != XMelody.Last() ) {
+    Session.Row = XMelody.Last();
+
+    UpdateUI_(Session, XMelody);
+  }
+qRR;
+qRT;
+qRE;
+}
+
+namespace {
+  mscmld::sRow Delete_(
+    mscmld::sRow Row,
+    melody::rXMelody &XMelody)
+  {
+    bso::sBool IsLast = Row == XMelody.Last();
+
+    XMelody.Remove(Row);
 
     if ( IsLast )
-      XMelody.Row = qNIL;
+      Row = XMelody.Last();
 
-    DisplayMelody_(XMelody, Session);
+    return Row;
+  }
+}
+
+D_( Delete )
+{
+qRH;
+  melody::hGuard Guard;
+qRB;
+  XMEL();
+
+  if ( Session.Row != qNIL ) {
+    Session.Row = Delete_(Session.Row, XMelody);
+  }
+qRR;
+qRT;
+qRE;
+}
+
+D_( Backspace )
+{
+qRH;
+  melody::hGuard Guard;
+qRB;
+  XMEL();
+
+  if ( Session.Row != XMelody.First() ) {
+    Session.Row = Delete_(XMelody.Previous(Session.Row), XMelody);
   }
 qRR;
 qRT;
@@ -937,9 +994,7 @@ qRB;
   XMEL();
 
   XMelody.wMelody::Init();
-  XMelody.Row = qNIL;
-
-  DisplayMelody_(XMelody, Session);
+  Session.Row = qNIL;
 qRR;
 qRT;
 qRE;
@@ -949,12 +1004,27 @@ D_( Keyboard )
 {
 qRH;
   melody::hGuard Guard;
+  str::wString Script;
+  mscmld::sPitch Pitch;
+  mscmld::sNote Note;
 qRB;
   XMEL();
 
-  melody::Handle(mscmld::sNote(str::wString(Id+1).ToU8() + 5 + XMelody.BaseOctave * 12, mscmld::sDuration(3), XMelody.Signature), XMelody);
+  Pitch = str::wString(Id+1).ToU8() + 5 + Session.BaseOctave * 12;
 
-  DisplayMelody_(XMelody, Session);
+  Script.Init();
+  flx::rStringTWFlow(Script) << "play(" << (bso::sUInt)Pitch << ");";
+
+  Session.Execute(Script);
+
+  Note.Init(Pitch, mscmld::sDuration(3), XMelody.Signature);
+
+  if ( Session.Row == qNIL )
+    Session.Row = XMelody.Append(Note);
+  else {
+    XMelody.InsertAt(Note, XMelody.Next(Session.Row) );
+    Session.Row = XMelody.Next(Session.Row);
+  }
 qRR;
 qRT;
 qRE;
@@ -963,11 +1033,14 @@ qRE;
 D_( SetTimeSignature )
 {
 qRH;
-  qCBUFFERh Buffer;
+  rValues_ Values;
   melody::hGuard Guard;
   mscmld::sSignatureTime Signature;
 qRB;
-  Signature.Init(str::wString(Session.GetValue("Numerator", Buffer)).ToU8(), str::wString(Session.GetValue("Denominator", Buffer)).ToU8());
+  Values.Init();
+  Session.GetValues(sIds_(iNumerator, iDenominator), Values);
+
+  Signature.Init(Values.Get<bso::sU8>(iNumerator), Values.Get<bso::sU8>(iDenominator));
 
   if ( !Signature.IsValid() )
     qRGnr();
@@ -990,14 +1063,14 @@ qRH;
 qRB;
   XMEL();
 
-  BaseOctaveBackup = XMelody.BaseOctave;
+  BaseOctaveBackup = Session.BaseOctave;
 
-  str::wString(Session.GetValue(Id, Buffer)).ToNumber(XMelody.BaseOctave, str::sULimit<bso::sU8>(9));
+  str::wString(Session.GetValue(Id, Buffer)).ToNumber(Session.BaseOctave, str::sULimit<bso::sU8>(9));
 
-  if ( !DisplayMelody_(XMelody, Session) ) {
+  if ( !Display_(XMelody, Session) ) {
     bso::pInt Buffer;
-    XMelody.BaseOctave = BaseOctaveBackup;
-    Session.SetValue("Octave", bso::Convert(XMelody.BaseOctave, Buffer));
+    Session.BaseOctave = BaseOctaveBackup;
+    Session.SetValue(L_( iOctave ), bso::Convert(Session.BaseOctave, Buffer));
   }
 qRR;
 qRT;
@@ -1029,12 +1102,22 @@ qRB;
 
   Session.Width = Width;
 
-  CXMEL();
-  DisplayMelody_(XMelody, Session);
-
+  Display_(melody::Get(Guard), Session);
 qRR;
 qRT;
 qRE;
+}
+
+#undef L_
+#define L_(name)  actions_::s##name::Label
+
+void main::rActionHelper::SCLXOnAfterAction(
+  sSession &Session,
+  const char *Id,
+  const char *Action)
+{
+  if ( strcmp(L_( UpdateUI ), Action ) )
+    sclx::Broadcast(L_( UpdateUI ));
 }
 
 namespace {
@@ -1042,14 +1125,14 @@ namespace {
 
   namespace _ {
     template <typename action> void Add(
-      sclx::action_handler<sSession> &Core,
+      rCore &Core,
       action &Action )
     {
-        Core.Add(Action.Name, Action);
+        Core.Add(Action.Label, Action);
     }
 
     template <typename action, typename... actions> void Add(
-      sclx::action_handler<sSession> &Core,
+      rCore &Core,
       action &Action,
       actions &...Actions)
     {
@@ -1058,19 +1141,25 @@ namespace {
     }
   }
 
-  void Register_(void)
+  void RegisterActions_(void)
   {
     _::Add(Core,
-      OnNewSession, Hit, SetAccidental, SetAccidentalAmount, Refresh,
+      OnNewSession, UpdateUI, Hit, GrabMidiIn, SetAccidental, SetAccidentalAmount, Refresh,
       SelectNote, Rest, Duration, Dot, Tie,
-      Execute, Cursor, Append, Suppr, Clear,
+      Execute, First, Previous, Next, Last, Delete, Backspace, Clear,
       Keyboard, Test, SetTimeSignature, SetOctave, ChangeWidth );
   }
 }
 
 #define R_( name ) Add_(main::Core, actions_::name)
 
+
 qGCTOR( main ) {
   Core.Init();
-  Register_();
+  RegisterActions_();
+  InitializeMidiInOwning_();
+  ActionHelper.Init();
+
+  // ActionHelper.Before.Add();
+  ActionHelper.After.Add(L_( UpdateUI ), L_( SelectNote ), L_( First ), L_( Previous ), L_( Next ), L_( Last ), L_( SetOctave ), L_( ChangeWidth ));
 }

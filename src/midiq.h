@@ -27,6 +27,9 @@
 # include "mtk.h"
 
 namespace midiq {
+  const str::dString &GetDeviceInId(str::dString &Id);
+  const str::dString &GetDeviceOutId(str::dString &Id);
+
   struct sShared {
     mscmld::dMelody *Melody;
     mscmld::sRow Row;
@@ -40,7 +43,7 @@ namespace midiq {
     }
   };
 
-  void HandleInput(
+  void _HandleInput(
     void *UP,
     mtk::gBlocker &Blocker);
 

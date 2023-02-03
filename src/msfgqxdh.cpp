@@ -32,22 +32,7 @@ const scli::sInfo &sclx::SCLXInfo( void )
 
 void sclx::SCLXInitialization( xdhcdc::eMode Mode )
 {
-qRH;
-  midiq::sShared Shared;
-  str::wString Device;
-qRB;
   melody::Initialize();
-
-  Device.Init();
-  sclm::MGetValue(::registry::parameter::devices::in::Value, Device);
-
-  Shared.RFlow = &main::MidiRFlow;
-  Shared.MIDIDeviceIn = &Device;
-
-  mtk::Launch(midiq::HandleInput, &Shared);
-qRR;
-qRT;
-qRE;
 }
 
 namespace {
@@ -73,15 +58,20 @@ namespace {
       const str::dString &Id,
       const str::dString &Action) override
       {
-      qRH;
+      qRFH;
 			  qCBUFFERh IdBuffer, ActionBuffer;
-      qRB;
+      qRFB;
         Action.Convert(ActionBuffer);
+        Id.Convert(IdBuffer);
 
-			  main::Core.Launch(Session_, Id.Convert(IdBuffer), ActionBuffer == NULL || ActionBuffer[0] == 0 ? "OnNewSession" : ActionBuffer, xdhcdc::m_Undefined); // Last parameter is not used.
-      qRR;
-      qRT;
-      qRE;
+        if ( main::ActionHelper.Before.Search(ActionBuffer) || main::ActionHelper.OnBeforeAction(Session_, IdBuffer, ActionBuffer ) ) {
+          main::Core.Launch(Session_, IdBuffer, ActionBuffer == NULL || ActionBuffer[0] == 0 ? "OnNewSession" : ActionBuffer, xdhcdc::m_Undefined); // Last parameter is not used.
+          if ( !main::ActionHelper.After.Search(ActionBuffer) )
+            main::ActionHelper.OnAfterAction(Session_, IdBuffer, ActionBuffer);
+        }
+      qRFR;
+      qRFT;
+      qRFE(sclm::ErrorDefaultHandling());
         return true;
       }
   public:
