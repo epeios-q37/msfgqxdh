@@ -109,8 +109,9 @@ var controlOptions = {
 
 function bindKey(key, action, id = 'dummy') {
   keyboardJS.bind(key, (e) => {
-    console.log("'" + key + "' is pressed.");
-    launchEvent(id + "|DUMMY|click||((click|" + action + "))");
+    console.log(e, e.target.nodeName, "'" + key + "' is pressed.");
+    if ( !['TEXTAREA','SELECT','INPUT'].includes(e.target.nodeName.toUpperCase()))
+      launchEvent(id + "|DUMMY|click||((click|" + action + "))");
   });
 }
 
@@ -132,6 +133,8 @@ var keyBindings = {
   'num0': 'Rest',
   'num.': 'Dot',
   'num-': 'Tie',
+  'end': 'Last',
+  'home': 'First',
 };
 
 function activate() {
@@ -431,6 +434,7 @@ kbd {
             <input id="WidthNumberInput" xdh:onevent="ChangeWidth" type="number" min="10" max="25"
               size="2" />
           </span>
+          <!--input></input-->
         </fieldset>
       </span>
       <fieldset style="display: flex; align-items: center; gap:5px;">
@@ -441,7 +445,7 @@ kbd {
         <span></span>
         <button id="Delete" xdh:onevent="Delete">Delete</button>
         <button id="Clear" xdh:onevent="Clear">Clear all</button>
-        <button onclick="activate()">Play</button>
+        <!--button onclick="activate()">Play</button-->
       </fieldset>
     </fieldset>
     <fieldset>
